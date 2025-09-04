@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "n8n start"
+    "start": "N8N_TRUST_PROXY=1 N8N_DISABLE_RATE_LIMIT=true npx n8n start"
   },
   "keywords": [],
   "author": "",
