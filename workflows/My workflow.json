@@ -74,7 +74,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const prefs = $json || {};        // user preferences passed along\nconst items = $json.merged || []; // safely get merged items\n\nfunction score(item, prefs) {\n  let s = 0;\n  if (prefs.genres?.some(g => item.genres?.includes(g))) s += 3;\n  if (prefs.languages?.includes(item.original_language || \"\")) s += 2;\n  if (prefs.mood?.length && item.overview?.toLowerCase().includes(\"light\")) s += 1;\n  s += (item.rating || 0) * 0.5;       // weigh IMDb rating\n  s += (item.popularity || 0) * 0.1;   // weigh TMDB popularity\n  return s;\n}\n\n// Rank and take top 5\nconst ranked = items\n  .map(i => ({ ...i, _score: score(i, prefs) }))\n  .sort((a, b) => b._score - a._score)\n  .slice(0, 5); // <-- limit for LLM batching\n\n// Return for next node (LLM or Webhook)\nreturn ranked.map(r => ({ json: r }));\n"
+        "jsCode": "const prefs = $json || {};\nconst items = $json.merged || [];\n\nfunction score(item, prefs) {\n  let s = 0;\n  if (prefs.genres?.some(g => item.genres?.includes(g))) s += 3;\n  if (prefs.languages?.includes(item.original_language || \"\")) s += 2;\n  if (prefs.mood?.length && item.overview?.toLowerCase().includes(\"light\")) s += 1;\n  s += (item.rating || 0) * 0.5;\n  s += (item.popularity || 0) * 0.1;\n  return s;\n}\n\n// Rank and take top N (e.g., 2 to reduce tokens)\nconst ranked = items\n  .map(i => ({ ...i, _score: score(i, prefs) }))\n  .sort((a, b) => b._score - a._score)\n  .slice(0, 2); // limit items for LLM\n\n// Return as **single item** for LLM node\nreturn [\n  {\n    json: {\n      raw_query: $json.raw_query,\n      merged: ranked, // array of top items\n    },\n  },\n];\n\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -88,7 +88,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=You are a movie recommender.\nThe user query was: {{$json.raw_query}}\n\nFor this recommendation:\n- Title: {{$json.title}}\n- Year: {{$json.year}}\n- Genres: {{$json.genres}}\n- Rating: {{$json.rating}}\n- Overview: {{$json.overview}}\n\nWrite 1–2 short sentences explaining why this is a good fit.",
+        "text": "=Respond ONLY in valid JSON. Do not include extra text or numbering.\n\nYou are a movie recommender.\nThe user query was: {{$json.raw_query}}\nHere is a list of top items:\n\n{{$json.merged}}\n\nRespond ONLY in JSON with the following structure:\n{\n  \"results\": [\n    {\n      \"id\": 1,\n      \"title\": \"Movie title\",\n      \"year\": 2025,\n      \"genres\": [\"Genre1\", \"Genre2\"],\n      \"overview\": \"Brief description\",\n      \"ratings\": \"Rating if available\",\n      \"why\": \"One sentence why this matches the user query\"\n    }\n  ]\n}\n\n- Use the data from the merged array.  \n- Keep all movie data inside `results`.  \n- Do NOT include any extra text outside the JSON.\n",
         "messages": {
           "messageValues": [
             {
@@ -105,7 +105,7 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        672,
+        592,
         0
       ],
       "id": "4aa9c6a4-fa3c-41b1-abe6-8986b0435053",
@@ -123,31 +123,45 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
       "position": [
-        672,
+        592,
         224
       ],
       "id": "4f4f06bc-2bc0-4470-87e1-cb48a186a6b7",
       "name": "OpenAI Chat Model",
       "credentials": {
         "openAiApi": {
-          "id": "aVVZnSnQLRQnZsNR",
-          "name": "Content_key"
+          "id": "RLfSpKwCkdoiBjeE",
+          "name": "OpenAi account"
         }
       }
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
+        "respondWith": "json",
+        "responseBody": "={{$json.body}}",
         "options": {}
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        1024,
+        1088,
         0
       ],
       "id": "8ef54418-ba0e-4f73-92b3-28c2f7fa64a6",
       "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// If the item already has proper JSON, just return it\nif ($json.results) {\n  return [{ json: $json }];\n}\n\n// Otherwise, if the LLM output was wrapped in text (edge case)\nlet llmText = $json.text || \"\";\n\n// Remove wrappers if any\nllmText = llmText.replace(/```json\\s*/g, \"\").replace(/```/g, \"\").trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(llmText);\n} catch (e) {\n  return [{ json: { error: \"Invalid JSON from LLM\", raw: llmText } }];\n}\n\nreturn [{\n  json: {\n    body: JSON.stringify($json)  // ensures valid JSON string\n  }\n}];\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "70c2ad5d-8592-4401-b798-c74bd4c88ca4",
+      "name": "Code3"
     }
   ],
   "pinData": {},
@@ -238,6 +252,17 @@
       "main": [
         [
           {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
             "node": "Respond to Webhook",
             "type": "main",
             "index": 0
@@ -250,7 +275,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "7056fbb2-1329-4373-ba8d-1af5d768289f",
+  "versionId": "841347d5-9f5c-42c8-bff3-8360ef4e83eb",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "1f020a1ff2f02b7a6b81599764b13c253b7aac44d54fea1685f96d76d91648cc"

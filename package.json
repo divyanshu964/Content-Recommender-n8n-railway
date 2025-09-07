@@ -14,5 +14,13 @@
   },
   "dependencies": {
     "n8n": "^1.109.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/divyanshu964/Content-Recommender-n8n-railway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/divyanshu964/Content-Recommender-n8n-railway/issues"
+  },
+  "homepage": "https://github.com/divyanshu964/Content-Recommender-n8n-railway#readme"
 }
